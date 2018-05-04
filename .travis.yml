@@ -6,6 +6,10 @@ dist: trusty
 env:
   global:
   - M_PERTURB=0x42
+  - CFLAGS="-fsanitize=address -fno-omit-frame-pointer -fno-optimize-sibling-calls"
+  - ASAN_OPTIONS="symbolize=1 detect_stack_use_after_return=1"
+  - LSAN_OPTIONS="exitcode=0:fast_unwind_on_malloc=0:malloc_context_size=30"
+  - KQUEUE_DEBUG="yes"
 addons:
   apt:
     packages:
