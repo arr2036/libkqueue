@@ -83,6 +83,22 @@ evfilt_write_copyout(struct kevent *dst, UNUSED int nevents, struct filter *filt
 
     if (knote_copyout_flag_actions(filt, src) < 0) return -1;
 
+    /*
+     * Synthetic level-triggered re-arm for regular files: the file
+     * is "always writable", so re-post a completion if the knote
+     * survived the flag actions above (i.e. wasn't EV_ONESHOT/
+     * EV_DELETE'd) and isn't disabled.  EV_DISPATCH disables
+     * after the fire, so it auto-stops re-arming until enable.
+     */
+    if (src->kn_file_synthetic && !(src->kn_flags & KNFL_KNOTE_DELETED) &&
+        !(src->kev.flags & EV_DISABLE)) {
+        if (!PostQueuedCompletionStatus(src->kn_kq->kq_iocp, 1, (ULONG_PTR) 0,
+                                        (LPOVERLAPPED) src)) {
+            dbg_lasterror("PostQueuedCompletionStatus()");
+            /* not fatal - just won't re-fire */
+        }
+    }
+
     return (1);
 }
 
@@ -102,6 +118,7 @@ evfilt_write_knote_create(struct filter *filt, struct knote *kn)
     if (kn->kn_flags & KNFL_FILE) {
         kn->kn_handle = NULL;
         kn->kn_event_whandle = NULL;
+        kn->kn_file_synthetic = 1;
         if (!PostQueuedCompletionStatus(kn->kn_kq->kq_iocp, 1, (ULONG_PTR) 0,
                                         (LPOVERLAPPED) kn)) {
             dbg_lasterror("PostQueuedCompletionStatus()");

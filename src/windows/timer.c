@@ -54,6 +54,7 @@ ktimer_delete(struct filter *filt, struct knote *kn)
 static VOID CALLBACK evfilt_timer_callback(void* param, BOOLEAN fired){
     struct knote* kn;
     struct kqueue* kq;
+    int prev;
 
     if(fired){
         dbg_puts("called, but timer did not fire - this case should never be reached");
@@ -69,6 +70,20 @@ static VOID CALLBACK evfilt_timer_callback(void* param, BOOLEAN fired){
     } else {
         kq = kn->kn_kq;
         assert(kq);
+
+        /*
+         * Bump the per-knote fire counter; copyout drains it into
+         * kev.data so periodic timers report the accumulated number
+         * of expirations between drains, matching Linux/BSD.
+         *
+         * Only post a completion on the 0->1 transition - subsequent
+         * fires before the consumer drains coalesce into the same
+         * IOCP entry, mirroring how timerfd reads return all pending
+         * expirations in one go.
+         */
+        prev = atomic_fetch_add(&kn->kn_fire_count, 1);
+        if (prev != 0)
+            return;
 
         if (!PostQueuedCompletionStatus(kq->kq_iocp, 1, (ULONG_PTR) 0, (LPOVERLAPPED) kn)) {
             dbg_lasterror("PostQueuedCompletionStatus()");
@@ -102,13 +117,19 @@ int
 evfilt_timer_copyout(struct kevent *dst, UNUSED int nevents, struct filter *filt,
     struct knote* src, void* ptr)
 {
-    memcpy(dst, &src->kev, sizeof(struct kevent));
-    // TODO: Timer error handling
+    int count;
 
-    /* We have no way to determine the number of times
-       the timer triggered, thus we assume it was only once
-    */
-    dst->data = 1;
+    memcpy(dst, &src->kev, sizeof(struct kevent));
+
+    /*
+     * Drain the fire counter atomically: report what we observed
+     * and reset to zero so any further callbacks accumulate fresh.
+     * If a fire raced past our drain we'll see it on the next
+     * callback's 0->1 transition and post a new completion.
+     */
+    count = atomic_exchange(&src->kn_fire_count, 0);
+    if (count <= 0) count = 1;
+    dst->data = count;
 
     if (knote_copyout_flag_actions(filt, src) < 0) return -1;
 

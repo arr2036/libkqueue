@@ -562,7 +562,11 @@ test_kevent_regular_file(struct test_context *ctx)
     off_t curpos;
     int fd;
 
+#ifdef _WIN32
+    fd = open("C:\\Windows\\System32\\drivers\\etc\\hosts", O_RDONLY);
+#else
     fd = open("/etc/hosts", O_RDONLY);
+#endif
     if (fd < 0)
         abort();
 
@@ -634,19 +638,10 @@ test_evfilt_read(struct test_context *ctx)
     test(kevent_socket_get, ctx);
     test(kevent_socket_disable_and_enable, ctx);
     test(kevent_socket_oneshot, ctx);
-#ifndef _WIN32
-    /*
-     * Win32 EVFILT_READ is built on WSAEventSelect, which is
-     * level-triggered in spirit (FD_READ re-asserts after a
-     * partial recv).  Edge-triggered (EV_CLEAR) and one-shot
-     * (EV_DISPATCH) semantics aren't faithfully modelled, so
-     * skip those tests here.
-     */
     test(kevent_socket_clear, ctx);
 #ifdef EV_DISPATCH
     test(kevent_socket_dispatch, ctx);
 #endif
-#endif /* !_WIN32 */
 #ifndef _WIN32
     /*
      * These call close() directly on a SOCKET handle.  Win32's
@@ -666,13 +661,7 @@ test_evfilt_read(struct test_context *ctx)
     test(kevent_pipe_eof, ctx);
     test(kevent_pipe_eof_multi, ctx);
 #endif
-#ifndef _WIN32
-    /*
-     * Hard-codes /etc/hosts and the Win32 read filter doesn't
-     * implement KNFL_FILE; skip on Windows.
-     */
     test(kevent_regular_file, ctx);
-#endif
 #ifndef _WIN32
     close(ctx->client_fd);
     close(ctx->server_fd);

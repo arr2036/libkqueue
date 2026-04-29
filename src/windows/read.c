@@ -31,9 +31,7 @@ evfilt_read_callback(void *param, BOOLEAN fired)
         return;
     }
 
-    assert(param);
-    kn = (struct knote*)param;
-    // FIXME: check if knote is pending destroyed
+    kn = (struct knote *)param;
     kq = kn->kn_kq;
     assert(kq);
 
@@ -44,24 +42,43 @@ evfilt_read_callback(void *param, BOOLEAN fired)
                 &events);
     if (rv != 0) {
         dbg_wsalasterror("WSAEnumNetworkEvents");
-        return; //fIXME: should crash or invalidate the knote
+        return;
     }
-    /* FIXME: check for errors somehow..
-    if (events.lNetworkEvents & FD_ACCEPT)
-        kn->kev.flags |= EV
-    */
 
+    /*
+     * Edge-trigger emulation for EV_CLEAR/EV_DISPATCH sockets.
+     * WSAEventSelect re-records FD_READ after a partial recv even
+     * though no fresh data has arrived; Linux/BSD edge semantics
+     * only fire on a 0-or-shrinking-bytes -> grew transition.
+     *
+     * Compare current FIONREAD against the byte count we last
+     * delivered (snapshotted in copyout) and suppress the post if
+     * we'd be re-firing without genuinely new data.  FD_CLOSE/
+     * FD_ACCEPT bypass this check - those are real edges.
+     */
+    if (kn->kev.flags & (EV_CLEAR | EV_DISPATCH)) {
+        unsigned long now_bytes = 0;
+        int last;
+        int real_edge = (events.lNetworkEvents & (FD_CLOSE | FD_ACCEPT)) != 0;
 
-    if (!PostQueuedCompletionStatus(kq->kq_iocp, 1, (ULONG_PTR) 0, (LPOVERLAPPED) param)) {
+        if (!real_edge) {
+            if (ioctlsocket(kn->kev.ident, FIONREAD, &now_bytes) != 0)
+                now_bytes = 0;
+            last = atomic_load(&kn->kn_last_data);
+            if ((int)now_bytes <= last) {
+                /* No fresh data; remember the current floor so a
+                 * later genuine arrival above it re-fires. */
+                atomic_store(&kn->kn_last_data, (int)now_bytes);
+                return;
+            }
+        }
+    }
+
+    if (!PostQueuedCompletionStatus(kq->kq_iocp, 1, (ULONG_PTR) 0,
+                                    (LPOVERLAPPED) kn)) {
         dbg_lasterror("PostQueuedCompletionStatus()");
         return;
-        /* FIXME: need more extreme action */
     }
-
-    /* DEADWOOD
-    kn = (struct knote *) param;
-    evt_signal(kn->kn_kq->kq_loop, EVT_WAKEUP, kn);
-    */
 }
 
 #if FIXME
@@ -92,27 +109,62 @@ evfilt_read_copyout(struct kevent *dst, UNUSED int nevents, struct filter *filt,
 {
     unsigned long bufsize;
 
-    //struct event_buf * const ev = (struct event_buf *) ptr;
-
-    /* TODO: handle regular files
-    if (src->flags & KNFL_FILE) { ... } */
-
     memcpy(dst, &src->kev, sizeof(*dst));
-    if (src->kn_flags & KNFL_SOCKET_PASSIVE) {
+
+    if (src->kn_flags & KNFL_FILE) {
+        /*
+         * Regular file: report bytes-remaining-to-EOF as Linux/BSD
+         * do, derived from fstat()+lseek().  Failure is benign;
+         * we just report 0 in that case rather than dropping the
+         * event entirely.
+         */
+        struct _stat64 sb;
+        __int64 curpos;
+        if (_fstat64((int)src->kev.ident, &sb) == 0) {
+            curpos = _lseeki64((int)src->kev.ident, 0, SEEK_CUR);
+            if (curpos < 0) curpos = 0;
+            dst->data = (sb.st_size > curpos) ? (intptr_t)(sb.st_size - curpos) : 0;
+            if (sb.st_size <= curpos) dst->flags |= EV_EOF;
+        } else {
+            dst->data = 0;
+        }
+    } else if (src->kn_flags & KNFL_SOCKET_PASSIVE) {
         /* TODO: should contains the length of the socket backlog */
         dst->data = 1;
     } else {
-        /* On return, data contains the number of bytes of protocol
-           data available to read.
-         */
         if (ioctlsocket(src->kev.ident, FIONREAD, &bufsize) != 0) {
             dbg_wsalasterror("ioctlsocket");
             return (-1);
         }
         dst->data = bufsize;
+
+        /*
+         * Edge-trigger snapshot for EV_CLEAR/EV_DISPATCH sockets:
+         * remember the byte count we just delivered so the
+         * WSAEventSelect callback can suppress re-assertions that
+         * don't represent fresh data (a partial recv re-records
+         * FD_READ on Win32 even though the level didn't transition).
+         */
+        if (src->kev.flags & (EV_CLEAR | EV_DISPATCH))
+            atomic_store(&src->kn_last_data, (int)bufsize);
     }
 
     if (knote_copyout_flag_actions(filt, src) < 0) return -1;
+
+    /*
+     * Synthetic level-triggered re-arm for regular files.  The
+     * file is "always readable" until EOF, but we still want
+     * EV_DISPATCH/EV_ONESHOT semantics to take effect; both are
+     * handled by knote_copyout_flag_actions above (delete /
+     * disable), so re-post only if the knote's still armed.
+     */
+    if (src->kn_file_synthetic && !(src->kn_flags & KNFL_KNOTE_DELETED) &&
+        !(src->kev.flags & EV_DISABLE)) {
+        if (!PostQueuedCompletionStatus(src->kn_kq->kq_iocp, 1, (ULONG_PTR) 0,
+                                        (LPOVERLAPPED) src)) {
+            dbg_lasterror("PostQueuedCompletionStatus()");
+        }
+    }
 
     return (1);
 }
@@ -125,6 +177,25 @@ evfilt_read_knote_create(struct filter *filt, struct knote *kn)
 
     if (windows_get_descriptor_type(kn) < 0)
             return (-1);
+
+    /*
+     * Regular files: synthesise a "level-triggered, always
+     * readable" source.  Post one completion now and let
+     * evfilt_read_copyout re-post on each drain while the knote
+     * remains armed.  No WSAEventSelect/wait registration; that
+     * machinery is socket-only on Win32.
+     */
+    if (kn->kn_flags & KNFL_FILE) {
+        kn->kn_handle = NULL;
+        kn->kn_event_whandle = NULL;
+        kn->kn_file_synthetic = 1;
+        if (!PostQueuedCompletionStatus(kn->kn_kq->kq_iocp, 1, (ULONG_PTR) 0,
+                                        (LPOVERLAPPED) kn)) {
+            dbg_lasterror("PostQueuedCompletionStatus()");
+            return (-1);
+        }
+        return (0);
+    }
 
     /* Create an auto-reset event object */
     evt = CreateEvent(NULL, FALSE, FALSE, NULL);
@@ -143,16 +214,8 @@ evfilt_read_knote_create(struct filter *filt, struct knote *kn)
         return (-1);
     }
 
-    /* TODO: handle regular files in addition to sockets */
-
-    /* TODO: handle in copyout
-    if (kn->kev.flags & EV_ONESHOT || kn->kev.flags & EV_DISPATCH)
-        kn->epoll_events |= EPOLLONESHOT;
-    if (kn->kev.flags & EV_CLEAR)
-        kn->epoll_events |= EPOLLET;
-    */
-
     kn->kn_handle = evt;
+    atomic_store(&kn->kn_last_data, 0);
 
     if (RegisterWaitForSingleObject(&kn->kn_event_whandle, evt,
         evfilt_read_callback, kn, INFINITE, 0) == 0) {
@@ -167,6 +230,18 @@ evfilt_read_knote_create(struct filter *filt, struct knote *kn)
 int
 evfilt_read_knote_delete(struct filter *filt, struct knote *kn)
 {
+    /*
+     * Synthetic file source: no Win32 wait registration to tear
+     * down, just clear the synthetic flag so any IOCP entry that
+     * was already in flight gets discarded by copyout's
+     * KNFL_KNOTE_DELETED check (set by the common layer around
+     * this call).
+     */
+    if (kn->kn_file_synthetic) {
+        kn->kn_file_synthetic = 0;
+        return (0);
+    }
+
     if (kn->kn_handle == NULL || kn->kn_event_whandle == NULL)
         return (0);
 
@@ -180,6 +255,7 @@ evfilt_read_knote_delete(struct filter *filt, struct knote *kn)
     }
 
     kn->kn_handle = NULL;
+    kn->kn_event_whandle = NULL;
     return (0);
 }
 

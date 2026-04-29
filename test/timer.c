@@ -275,20 +275,12 @@ test_evfilt_timer(struct test_context *ctx)
     test(kevent_timer_get, ctx);
     test(kevent_timer_oneshot, ctx);
     test(kevent_timer_periodic, ctx);
-#ifndef _WIN32
-    /*
-     * Win32's evfilt_timer_copyout always reports data=1 (no
-     * accumulation across drains), so the modify test that
-     * expects [2,4] fires can't pass.
-     */
     test(kevent_timer_periodic_modify, ctx);
-#endif
 #if WITH_NATIVE_KQUEUE_BUGS
     test(kevent_timer_periodic_to_oneshot, ctx);
 #endif
     test(kevent_timer_disable_and_enable, ctx);
-#if defined(EV_DISPATCH) && !defined(_WIN32)
-    /* Same data=1 limitation as periodic_modify above. */
+#ifdef EV_DISPATCH
     test(kevent_timer_dispatch, ctx);
 #endif
 }

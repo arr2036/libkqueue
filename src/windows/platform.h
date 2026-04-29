@@ -57,16 +57,32 @@
 #define atomic_ptr_load(p)            atomic_load(p)
 #else
 /*
- * Atomic integer operations
+ * Atomic integer operations.  Windows / MSVC has no <stdatomic.h>,
+ * so map the C11-shaped names that the rest of libkqueue and the
+ * test suite use onto the Interlocked* family.  These intrinsics
+ * are full barriers (acq+rel) on x86/x64 and ARM64, so they line
+ * up with the seq_cst defaults of stdatomic.
  */
 #define atomic_uintptr_t              uintptr_t
 #define atomic_uint                   unsigned int
-#define atomic_inc(value)             InterlockedIncrement((LONG volatile *)value)
-#define atomic_dec(value)             InterlockedDecrement((LONG volatile *)value)
-#define atomic_cas(p, oval, nval)     (InterlockedCompareExchange(p, nval, oval) == oval)
-#define atomic_ptr_cas(p, oval, nval) (InterlockedCompareExchangePointer(p, nval, oval) == oval)
-#define atomic_ptr_swap(p, oval)      InterlockedExchangePointer(p, oval)
-#define atomic_ptr_load(p)            (*p)
+#define atomic_int                    int
+#define atomic_long                   long
+#define atomic_bool                   long
+#define atomic_inc(value)             InterlockedIncrement((LONG volatile *)(value))
+#define atomic_dec(value)             InterlockedDecrement((LONG volatile *)(value))
+#define atomic_cas(p, oval, nval)     (InterlockedCompareExchange((LONG volatile *)(p), (nval), (oval)) == (oval))
+#define atomic_ptr_cas(p, oval, nval) (InterlockedCompareExchangePointer((p), (nval), (oval)) == (oval))
+#define atomic_ptr_swap(p, oval)      InterlockedExchangePointer((p), (oval))
+#define atomic_ptr_load(p)            (*(p))
+
+/* C11-shaped helpers used by the platform code and tests. */
+#define atomic_fetch_add(p, v)        InterlockedExchangeAdd((LONG volatile *)(p), (LONG)(v))
+#define atomic_fetch_sub(p, v)        InterlockedExchangeAdd((LONG volatile *)(p), -(LONG)(v))
+#define atomic_exchange(p, v)         InterlockedExchange((LONG volatile *)(p), (LONG)(v))
+#define atomic_load(p)                InterlockedCompareExchange((LONG volatile *)(p), 0, 0)
+#define atomic_store(p, v)            ((void)InterlockedExchange((LONG volatile *)(p), (LONG)(v)))
+#define atomic_compare_exchange_strong(p, expected, desired) \
+    (InterlockedCompareExchange((LONG volatile *)(p), (LONG)(desired), *(LONG *)(expected)) == *(LONG *)(expected))
 
 #endif
 
@@ -91,8 +107,20 @@
  * Additional members for struct knote
  */
 #define KNOTE_PLATFORM_SPECIFIC \
-    HANDLE          kn_event_whandle; \
-    void            *kn_handle
+    HANDLE                     kn_event_whandle; \
+    void                       *kn_handle; \
+    /* Generic fire-count for filters that need to report */     \
+    /* accumulated occurrences in copyout (e.g. EVFILT_TIMER). */\
+    atomic_int                 kn_fire_count; \
+    /* EVFILT_READ socket edge-trigger (EV_CLEAR/EV_DISPATCH): */ \
+    /* tracks last reported FIONREAD byte count so the          */\
+    /* WSAEventSelect callback can suppress re-assertions that  */\
+    /* don't represent fresh data.                              */\
+    atomic_int                 kn_last_data;                     \
+    /* For KNFL_FILE EVFILT_READ/WRITE: marks the knote as a    */\
+    /* synthetic level-triggered source so copyout can re-post  */\
+    /* a completion when the knote remains armed.               */\
+    int                        kn_file_synthetic
 
 /*
  * Some datatype forward declarations
