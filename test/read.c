@@ -634,10 +634,19 @@ test_evfilt_read(struct test_context *ctx)
     test(kevent_socket_get, ctx);
     test(kevent_socket_disable_and_enable, ctx);
     test(kevent_socket_oneshot, ctx);
+#ifndef _WIN32
+    /*
+     * Win32 EVFILT_READ is built on WSAEventSelect, which is
+     * level-triggered in spirit (FD_READ re-asserts after a
+     * partial recv).  Edge-triggered (EV_CLEAR) and one-shot
+     * (EV_DISPATCH) semantics aren't faithfully modelled, so
+     * skip those tests here.
+     */
     test(kevent_socket_clear, ctx);
 #ifdef EV_DISPATCH
     test(kevent_socket_dispatch, ctx);
 #endif
+#endif /* !_WIN32 */
     test(kevent_socket_listen_backlog, ctx);
     test(kevent_socket_eof_clear, ctx);
     test(kevent_socket_eof, ctx);
