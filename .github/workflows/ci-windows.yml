@@ -53,4 +53,5 @@ jobs:
         env:
           KQUEUE_DEBUG: 1
         run: |
+          $env:PATH = "$pwd\build_x64\${{ matrix.build_type }};" + $env:PATH
           .\build_x64\test\${{ matrix.build_type }}\libkqueue-test.exe -n 1
