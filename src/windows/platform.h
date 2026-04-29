@@ -104,6 +104,26 @@
 */
 
 /*
+ * Per-eventfd state.  The "eventfd" abstraction is a generic
+ * cross-thread doorbell into the kqueue's wait loop; on Linux it
+ * maps to a real eventfd(2), on Solaris to a port_send into the
+ * kqueue's event port, and on Windows to a PostQueuedCompletionStatus
+ * into kq->kq_iocp with the originating filter id carried in the
+ * completion key.
+ *
+ * efd_filter_id is set at init time from filt->kf_id and used as
+ * the IOCP key so windows_kevent_copyout can route the wakeup
+ * back to the originating filter via filter_lookup().
+ *
+ * efd_raised coalesces N raises before a drain into a single IOCP
+ * entry, matching the level-triggered eventfd counter semantics
+ * common code expects.  Cleared by eventfd_lower().
+ */
+#define EVENTFD_PLATFORM_SPECIFIC \
+    int        efd_filter_id; \
+    atomic_int efd_raised
+
+/*
  * Additional members for struct knote
  */
 #define KNOTE_PLATFORM_SPECIFIC \
@@ -139,6 +159,14 @@ int     windows_kevent_copyout(struct kqueue *, int, struct kevent *, int);
 int     windows_filter_init(struct kqueue *, struct filter *);
 void    windows_filter_free(struct kqueue *, struct filter *);
 int     windows_get_descriptor_type(struct knote *);
+
+int     windows_eventfd_init(struct eventfd *efd, struct filter *filt);
+void    windows_eventfd_close(struct eventfd *efd);
+int     windows_eventfd_raise(struct eventfd *efd);
+int     windows_eventfd_lower(struct eventfd *efd);
+int     windows_eventfd_descriptor(struct eventfd *efd);
+int     windows_eventfd_register(struct kqueue *kq, struct eventfd *efd);
+void    windows_eventfd_unregister(struct kqueue *kq, struct eventfd *efd);
 
 /*
  * GCC-compatible branch prediction macros

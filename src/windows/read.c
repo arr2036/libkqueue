@@ -214,6 +214,20 @@ evfilt_read_knote_create(struct filter *filt, struct knote *kn)
         return (-1);
     }
 
+    /*
+     * WSAEventSelect on a socket with already-pending FD_READ /
+     * FD_ACCEPT / FD_CLOSE state may or may not auto-set the
+     * event depending on Win32 SKU and timing - empirically it
+     * fires for EV_ENABLE re-arm of a previously-created watch
+     * but not always for a fresh EV_ADD.  Reset the event
+     * unconditionally so the wait registration sees a known
+     * cleared edge, and synthesise the wakeup ourselves below
+     * if there's data buffered.  That way the EV_ADD path doesn't
+     * accidentally double-fire while EV_ENABLE / EV_DISPATCH
+     * re-arm still works.
+     */
+    ResetEvent(evt);
+
     kn->kn_handle = evt;
     atomic_store(&kn->kn_last_data, 0);
 
@@ -225,15 +239,26 @@ evfilt_read_knote_create(struct filter *filt, struct knote *kn)
     }
 
     /*
-     * WSAEventSelect's documented behaviour is to set the event
-     * immediately if any of the requested network events has
-     * already occurred (FD_READ when there's pending data,
-     * FD_ACCEPT for an already-accepted-pending listener,
-     * FD_CLOSE for an already-closed peer), so the registered
-     * wait fires the callback without us needing to synthesise a
-     * post here.  This is what makes EV_DISPATCH re-enable work
-     * when the consumer re-arms with un-drained data still queued.
+     * Level-triggered fire-on-enable: if the socket already has
+     * data buffered when we (re)arm the watch, post one
+     * completion explicitly.  WSAEventSelect's auto-reset event
+     * will only fire once a fresh FD_READ is recorded, which
+     * doesn't happen if no recv has occurred since the prior
+     * delivery, so the consumer would otherwise miss the
+     * EV_DISPATCH / EV_ENABLE re-arm wakeup.  Skipped for
+     * passive listeners: FD_ACCEPT carries no FIONREAD signal.
      */
+    {
+        unsigned long pending = 0;
+        if (!(kn->kn_flags & KNFL_SOCKET_PASSIVE) &&
+            ioctlsocket((SOCKET)kn->kev.ident, FIONREAD, &pending) == 0 &&
+            pending > 0) {
+            if (!PostQueuedCompletionStatus(kn->kn_kq->kq_iocp, 1,
+                                            (ULONG_PTR) 0,
+                                            (LPOVERLAPPED) kn))
+                dbg_lasterror("PostQueuedCompletionStatus()");
+        }
+    }
 
     return (0);
 }

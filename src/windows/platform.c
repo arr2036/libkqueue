@@ -43,7 +43,14 @@ const struct kqueue_vtable kqops = {
     .kevent_wait        = windows_kevent_wait,
     .kevent_copyout     = windows_kevent_copyout,
     .filter_init        = windows_filter_init,
-    .filter_free        = windows_filter_free
+    .filter_free        = windows_filter_free,
+    .eventfd_register   = windows_eventfd_register,
+    .eventfd_unregister = windows_eventfd_unregister,
+    .eventfd_init       = windows_eventfd_init,
+    .eventfd_close      = windows_eventfd_close,
+    .eventfd_raise      = windows_eventfd_raise,
+    .eventfd_lower      = windows_eventfd_lower,
+    .eventfd_descriptor = windows_eventfd_descriptor,
 };
 
 int
@@ -139,7 +146,28 @@ windows_kevent_copyout(struct kqueue *kq, int nready,
     struct knote* kn;
     int rv, nret, filt_index;
 
-    //FIXME: not true for EVFILT_IOCP
+    /*
+     * overlap == NULL marks an eventfd doorbell post (see
+     * windows_eventfd_raise): no per-knote payload, the IOCP key
+     * carries the filter id of the originator and we route via
+     * filter_lookup so the filter's kf_copyout drains its own
+     * pending state.  This is the Win32 analogue of Solaris's
+     * PORT_SOURCE_USER dispatch.
+     */
+    if (iocp_buf.overlap == NULL) {
+        short fid = (short)(LONG_PTR) iocp_buf.key;
+        if (filter_lookup(&filt, kq, fid) < 0) {
+            dbg_printf("eventfd doorbell with unsupported filter id %d", fid);
+            return 0;
+        }
+        rv = filt->kf_copyout(eventlist, nevents, filt, NULL, &iocp_buf);
+        if (rv < 0) {
+            dbg_puts("eventfd-routed copyout failed");
+            return 0;
+        }
+        return rv;
+    }
+
     kn = (struct knote *) iocp_buf.overlap;
     filt_index = ~(kn->kev.filter);
     if (filt_index < 0 || filt_index >= EVFILT_SYSCOUNT) {

@@ -190,6 +190,7 @@ set(LIBKQUEUE_SOURCES
 
 if(CMAKE_SYSTEM_NAME MATCHES Windows)
   list(APPEND LIBKQUEUE_SOURCES
+       src/windows/eventfd.c
        src/windows/platform.c
        src/windows/platform.h
        src/windows/proc.c
