@@ -39,8 +39,18 @@ jobs:
       - name: Configure build system
         run: |
           cmake --version
-          cmake -S . -B build_x64 -A x64 -G "Visual Studio 17 2022" -DSTATICLIB=ON -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} -DCMAKE_VERBOSE_MAKEFILE=ON
+          cmake -S . -B build_x64 -A x64 -G "Visual Studio 17 2022" -DSTATICLIB=ON -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} -DCMAKE_VERBOSE_MAKEFILE=ON -DENABLE_TESTING=YES
 
       - name: Build libkqueue
         run: |
           cmake --build build_x64 --target install --config ${{ matrix.build_type }} --parallel 1
+
+      - name: Build tests
+        run: |
+          cmake --build build_x64 --target libkqueue-test --config ${{ matrix.build_type }} --parallel 1
+
+      - name: Run tests
+        env:
+          KQUEUE_DEBUG: 1
+        run: |
+          .\build_x64\test\${{ matrix.build_type }}\libkqueue-test.exe -n 1
