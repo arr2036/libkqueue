@@ -225,24 +225,15 @@ evfilt_read_knote_create(struct filter *filt, struct knote *kn)
     }
 
     /*
-     * Level-triggered fire-on-enable: if the socket already has
-     * data buffered when we (re)arm the watch, WSAEventSelect's
-     * auto-reset event won't fire until a fresh FD_READ arrives,
-     * so synthesise the wakeup ourselves.  This is what makes
-     * EV_DISPATCH re-enable work when the consumer re-arms with
-     * un-drained data still queued.
+     * WSAEventSelect's documented behaviour is to set the event
+     * immediately if any of the requested network events has
+     * already occurred (FD_READ when there's pending data,
+     * FD_ACCEPT for an already-accepted-pending listener,
+     * FD_CLOSE for an already-closed peer), so the registered
+     * wait fires the callback without us needing to synthesise a
+     * post here.  This is what makes EV_DISPATCH re-enable work
+     * when the consumer re-arms with un-drained data still queued.
      */
-    {
-        unsigned long pending = 0;
-        if (!(kn->kn_flags & KNFL_SOCKET_PASSIVE) &&
-            ioctlsocket((SOCKET)kn->kev.ident, FIONREAD, &pending) == 0 &&
-            pending > 0) {
-            if (!PostQueuedCompletionStatus(kn->kn_kq->kq_iocp, 1,
-                                            (ULONG_PTR) 0,
-                                            (LPOVERLAPPED) kn))
-                dbg_lasterror("PostQueuedCompletionStatus()");
-        }
-    }
 
     return (0);
 }
