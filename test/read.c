@@ -666,10 +666,18 @@ test_evfilt_read(struct test_context *ctx)
     test(kevent_pipe_eof, ctx);
     test(kevent_pipe_eof_multi, ctx);
 #endif
+#ifndef _WIN32
+    /*
+     * Hard-codes /etc/hosts and the Win32 read filter doesn't
+     * implement KNFL_FILE; skip on Windows.
+     */
     test(kevent_regular_file, ctx);
+#endif
+#ifndef _WIN32
     close(ctx->client_fd);
     close(ctx->server_fd);
     close(ctx->listen_fd);
+#endif
 
 #ifndef _WIN32
     create_socket_connection(&ctx->client_fd, &ctx->server_fd, &ctx->listen_fd);
