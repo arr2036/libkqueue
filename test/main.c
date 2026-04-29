@@ -160,8 +160,14 @@ main(int argc, char **argv)
     /* Line-buffer stdout so a hung test in CI is visible in the live
      * log, instead of having the last 4KB of output sit in a block
      * buffer until the process exits (or aborts, which doesn't flush
-     * stdio). */
+     * stdio).  MSVC's CRT silently turns _IOLBF into _IOFBF when the
+     * stream isn't a TTY, so go fully unbuffered there. */
+#ifdef _WIN32
+    setvbuf(stdout, NULL, _IONBF, 0);
+    setvbuf(stderr, NULL, _IONBF, 0);
+#else
     setvbuf(stdout, NULL, _IOLBF, 0);
+#endif
 
     struct unit_test tests[MAX_TESTS] = {
         { .ut_name = "kqueue",

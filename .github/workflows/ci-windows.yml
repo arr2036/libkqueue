@@ -50,8 +50,9 @@ jobs:
           cmake --build build_x64 --target libkqueue-test --config ${{ matrix.build_type }} --parallel 1
 
       - name: Run tests
+        shell: cmd
         env:
           KQUEUE_DEBUG: 1
         run: |
-          $env:PATH = "$pwd\build_x64\${{ matrix.build_type }};" + $env:PATH
+          set PATH=%CD%\build_x64\${{ matrix.build_type }};%PATH%
           .\build_x64\test\${{ matrix.build_type }}\libkqueue-test.exe -n 1
