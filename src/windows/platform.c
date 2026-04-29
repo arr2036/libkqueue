@@ -158,13 +158,11 @@ windows_kevent_copyout(struct kqueue *kq, int nready,
     }
 
     /*
-     * Certain flags cause the associated knote to be deleted
-     * or disabled.
+     * EV_DISPATCH/EV_ONESHOT post-processing happens inside the
+     * filter's copyout via knote_copyout_flag_actions().  Doing it
+     * a second time here used to double-delete the knote on
+     * oneshot fires (UAF) and freeze subsequent waits.
      */
-    if (eventlist->flags & EV_DISPATCH)
-        knote_disable(filt, kn); //TODO: Error checking
-    if (eventlist->flags & EV_ONESHOT)
-        knote_delete(filt, kn); //TODO: Error checking
 
     /* If an empty kevent structure is returned, the event is discarded. */
     if (likely(eventlist->filter != 0)) {
