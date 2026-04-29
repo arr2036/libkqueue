@@ -168,7 +168,14 @@ int
 evfilt_read_knote_modify(struct filter *filt, struct knote *kn,
         const struct kevent *kev)
 {
-    return (-1); /* STUB */
+    /*
+     * No native modify on Win32; tear down the WSAEventSelect/wait
+     * pair and re-create.  The new flags have already been merged
+     * into kn->kev by the common layer.
+     */
+    if (evfilt_read_knote_delete(filt, kn) < 0)
+        return (-1);
+    return evfilt_read_knote_create(filt, kn);
 }
 
 int

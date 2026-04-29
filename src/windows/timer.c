@@ -150,7 +150,13 @@ int
 evfilt_timer_knote_modify(struct filter *filt, struct knote *kn,
         const struct kevent *kev)
 {
-    return (0); /* STUB */
+    /*
+     * No native modify path; cancel the existing waitable timer
+     * and create a fresh one from the merged kn->kev.
+     */
+    if (evfilt_timer_knote_delete(filt, kn) < 0)
+        return (-1);
+    return evfilt_timer_knote_create(filt, kn);
 }
 
 int

@@ -192,10 +192,13 @@ if(CMAKE_SYSTEM_NAME MATCHES Windows)
   list(APPEND LIBKQUEUE_SOURCES
        src/windows/platform.c
        src/windows/platform.h
+       src/windows/proc.c
        src/windows/read.c
        src/windows/stdint.h
        src/windows/timer.c
        src/windows/user.c
+       src/windows/vnode.c
+       src/windows/write.c
        )
 elseif(CMAKE_SYSTEM_NAME MATCHES "(Solaris|SunOS)")
   list(APPEND LIBKQUEUE_SOURCES

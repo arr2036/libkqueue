@@ -28,11 +28,14 @@ struct event_buf {
  */
 static __thread struct event_buf iocp_buf;
 
-/* FIXME: remove these as filters are implemented */
-const struct filter evfilt_proc = EVFILT_NOTIMPL;
-const struct filter evfilt_vnode = EVFILT_NOTIMPL;
+/*
+ * EVFILT_SIGNAL has no Windows equivalent.  Win32 has no POSIX
+ * signals; SetConsoleCtrlHandler covers a tiny subset (CTRL+C,
+ * CTRL+BREAK, console close) and is global to the process, so it
+ * does not map onto kevent's per-knote model.  Leave the filter
+ * unimplemented rather than expose a half-feature.
+ */
 const struct filter evfilt_signal = EVFILT_NOTIMPL;
-const struct filter evfilt_write = EVFILT_NOTIMPL;
 
 const struct kqueue_vtable kqops = {
     .kqueue_init        = windows_kqueue_init,
