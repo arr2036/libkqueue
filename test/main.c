@@ -206,7 +206,7 @@ main(int argc, char **argv)
           .ut_func = test_evfilt_user,
           .ut_end = INT_MAX },
 #endif
-#ifdef EVFILT_LIBKQUEUE
+#if defined(EVFILT_LIBKQUEUE) && !defined(_WIN32)
         { .ut_name = "libkqueue",
           .ut_enabled = 1,
           .ut_func = test_evfilt_libkqueue,

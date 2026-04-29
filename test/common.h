@@ -90,6 +90,9 @@
 #  ifndef S_IRWXU
 #    define S_IRWXU (_S_IREAD | _S_IWRITE)
 #  endif
+
+/* usleep() shim: Win32 Sleep() is millisecond-granular. */
+#  define usleep(_us) Sleep((DWORD)((_us) / 1000))
 #endif
 
 #include "config.h"

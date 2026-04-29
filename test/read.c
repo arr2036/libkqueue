@@ -451,7 +451,11 @@ test_kevent_socket_eof(struct test_context *ctx)
 /*
  * Different from the socket eof test, as we get EPOLLHUP with no EPOLLIN on close
  * on Linux.
+ *
+ * Win32 has no POSIX pipe(2) and _pipe handles aren't sockets, so the read
+ * filter's WSAEventSelect path doesn't apply.  Skip.
  */
+#ifndef _WIN32
 void
 test_kevent_pipe_eof(struct test_context *ctx)
 {
@@ -548,6 +552,7 @@ test_kevent_pipe_eof_multi(struct test_context *ctx)
     close(pipefd_b[0]);
     close(pipefd_b[1]);
 }
+#endif /* !_WIN32 */
 
 /* Test if EVFILT_READ works with regular files */
 void
