@@ -85,11 +85,22 @@ evfilt_user_knote_modify(struct filter *filt, struct knote *kn,
             break;
     }
 
-    if ((!(kn->kev.flags & EV_DISABLE)) && kev->fflags & NOTE_TRIGGER) {
+    /*
+     * Coalesce repeated NOTE_TRIGGERs that haven't been delivered
+     * yet: post a single IOCP completion per "armed" -> "fired"
+     * transition.  Otherwise the test's 10x NOTE_TRIGGER ends up
+     * with 9 stale completions still queued in the IOCP after the
+     * first drain, breaking the test_no_kevents() postcondition.
+     */
+    if ((!(kn->kev.flags & EV_DISABLE)) && (kev->fflags & NOTE_TRIGGER)) {
+        int was_pending = kn->kev.fflags & NOTE_TRIGGER;
         kn->kev.fflags |= NOTE_TRIGGER;
-        if (!PostQueuedCompletionStatus(kn->kn_kq->kq_iocp, 1, (ULONG_PTR) 0, (LPOVERLAPPED) kn)) {
-            dbg_lasterror("PostQueuedCompletionStatus()");
-            return (-1);
+        if (!was_pending) {
+            if (!PostQueuedCompletionStatus(kn->kn_kq->kq_iocp, 1,
+                    (ULONG_PTR) 0, (LPOVERLAPPED) kn)) {
+                dbg_lasterror("PostQueuedCompletionStatus()");
+                return (-1);
+            }
         }
     }
 
