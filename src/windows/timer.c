@@ -147,6 +147,12 @@ evfilt_timer_knote_create(struct filter *filt, struct knote *kn)
 }
 
 int
+evfilt_timer_knote_delete(struct filter *filt, struct knote *kn)
+{
+    return (ktimer_delete(filt,kn));
+}
+
+int
 evfilt_timer_knote_modify(struct filter *filt, struct knote *kn,
         const struct kevent *kev)
 {
@@ -157,12 +163,6 @@ evfilt_timer_knote_modify(struct filter *filt, struct knote *kn,
     if (evfilt_timer_knote_delete(filt, kn) < 0)
         return (-1);
     return evfilt_timer_knote_create(filt, kn);
-}
-
-int
-evfilt_timer_knote_delete(struct filter *filt, struct knote *kn)
-{
-    return (ktimer_delete(filt,kn));
 }
 
 int

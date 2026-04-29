@@ -180,10 +180,12 @@ main(int argc, char **argv)
           .ut_func = test_evfilt_signal,
           .ut_end = INT_MAX },
 #endif
+#ifndef _WIN32
         { .ut_name = "proc",
           .ut_enabled = 1,
           .ut_func = test_evfilt_proc,
           .ut_end = INT_MAX },
+#endif
         { .ut_name = "timer",
           .ut_enabled = 1,
           .ut_func = test_evfilt_timer,
@@ -210,10 +212,12 @@ main(int argc, char **argv)
           .ut_func = test_evfilt_libkqueue,
           .ut_end = INT_MAX },
 #endif
+#ifndef _WIN32
         { .ut_name = "threading",
           .ut_enabled = 1,
           .ut_func = test_threading,
           .ut_end = INT_MAX },
+#endif
         { NULL, 0, NULL },
     };
     struct unit_test *test;

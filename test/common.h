@@ -72,6 +72,24 @@
 #else
 #  include "include/sys/event.h"
 #  include "src/windows/platform.h"
+
+/*
+ * POSIX-style constants the test suite uses that aren't shipped
+ * by the Win32 SDK.  Pick the closest analogue rather than
+ * #ifdef-ing every callsite.
+ */
+#  ifndef SHUT_RDWR
+#    define SHUT_RDWR SD_BOTH
+#  endif
+#  ifndef SHUT_RD
+#    define SHUT_RD SD_RECEIVE
+#  endif
+#  ifndef SHUT_WR
+#    define SHUT_WR SD_SEND
+#  endif
+#  ifndef S_IRWXU
+#    define S_IRWXU (_S_IREAD | _S_IWRITE)
+#  endif
 #endif
 
 #include "config.h"

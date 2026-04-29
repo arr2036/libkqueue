@@ -165,20 +165,6 @@ evfilt_read_knote_create(struct filter *filt, struct knote *kn)
 }
 
 int
-evfilt_read_knote_modify(struct filter *filt, struct knote *kn,
-        const struct kevent *kev)
-{
-    /*
-     * No native modify on Win32; tear down the WSAEventSelect/wait
-     * pair and re-create.  The new flags have already been merged
-     * into kn->kev by the common layer.
-     */
-    if (evfilt_read_knote_delete(filt, kn) < 0)
-        return (-1);
-    return evfilt_read_knote_create(filt, kn);
-}
-
-int
 evfilt_read_knote_delete(struct filter *filt, struct knote *kn)
 {
     if (kn->kn_handle == NULL || kn->kn_event_whandle == NULL)
@@ -195,6 +181,20 @@ evfilt_read_knote_delete(struct filter *filt, struct knote *kn)
 
     kn->kn_handle = NULL;
     return (0);
+}
+
+int
+evfilt_read_knote_modify(struct filter *filt, struct knote *kn,
+        const struct kevent *kev)
+{
+    /*
+     * No native modify on Win32; tear down the WSAEventSelect/wait
+     * pair and re-create.  The new flags have already been merged
+     * into kn->kev by the common layer.
+     */
+    if (evfilt_read_knote_delete(filt, kn) < 0)
+        return (-1);
+    return evfilt_read_knote_create(filt, kn);
 }
 
 int

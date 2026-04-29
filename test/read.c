@@ -591,6 +591,7 @@ test_kevent_regular_file(struct test_context *ctx)
 }
 
 /* Test transitioning a socket from EVFILT_WRITE to EVFILT_READ */
+#ifndef _WIN32
 void
 test_transition_from_write_to_read(struct test_context *ctx)
 {
@@ -615,6 +616,7 @@ test_transition_from_write_to_read(struct test_context *ctx)
     close(sd[1]);
     close(kqfd);
 }
+#endif
 
 void
 test_evfilt_read(struct test_context *ctx)
@@ -634,16 +636,22 @@ test_evfilt_read(struct test_context *ctx)
     test(kevent_socket_listen_backlog, ctx);
     test(kevent_socket_eof_clear, ctx);
     test(kevent_socket_eof, ctx);
+#ifndef _WIN32
+    /* Win32 pipe() (_pipe) handles aren't sockets and the read filter's
+     * WSAEventSelect path doesn't apply; skip the pipe-EOF tests there. */
     test(kevent_pipe_eof, ctx);
     test(kevent_pipe_eof_multi, ctx);
+#endif
     test(kevent_regular_file, ctx);
     close(ctx->client_fd);
     close(ctx->server_fd);
     close(ctx->listen_fd);
 
+#ifndef _WIN32
     create_socket_connection(&ctx->client_fd, &ctx->server_fd, &ctx->listen_fd);
     test(transition_from_write_to_read, ctx);
     close(ctx->client_fd);
     close(ctx->server_fd);
     close(ctx->listen_fd);
+#endif
 }

@@ -65,7 +65,11 @@ test_evfilt_write(struct test_context *ctx)
 {
     char *tmpdir = getenv("TMPDIR");
     if (tmpdir == NULL)
-#ifdef __ANDROID__
+#ifdef _WIN32
+        tmpdir = getenv("TEMP");
+    if (tmpdir == NULL)
+        tmpdir = ".";
+#elif defined(__ANDROID__)
         tmpdir = "/data/local/tmp";
 #else
         tmpdir = "/tmp";

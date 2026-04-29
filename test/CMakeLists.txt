@@ -20,20 +20,19 @@ project(libkqueue-test LANGUAGES C)
 set(LIBKQUEUE_TEST_SOURCES
     common.c
     kqueue.c
-    libkqueue.c
     main.c
-    proc.c
     read.c
     test.c
-    threading.c
     timer.c
     user.c
     vnode.c
     write.c)
 if(UNIX)
   list(APPEND LIBKQUEUE_TEST_SOURCES
+       libkqueue.c
        proc.c
-       signal.c)
+       signal.c
+       threading.c)
 endif()
 
 configure_file(${CMAKE_CURRENT_SOURCE_DIR}/config.h.in
