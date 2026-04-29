@@ -110,7 +110,17 @@ test_harness(struct unit_test tests[MAX_TESTS], int iterations)
     }
     testing_end();
 
+    /*
+     * On Win32 kqueue() returns an opaque int (an index into the
+     * library's internal map), not a CRT file descriptor.  Calling
+     * close() on it goes through _close() which asserts in Debug
+     * builds (modal dialog hangs CI) and FailFast-aborts in Release.
+     * libkqueue currently has no public close-the-kq API on Windows,
+     * so let process teardown reap the IOCP handle instead.
+     */
+#ifndef _WIN32
     close(kqfd);
+#endif
 
     /*
      * Linux's monitoring thread reaps closed kqueues asynchronously
