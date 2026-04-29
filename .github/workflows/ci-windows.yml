@@ -30,6 +30,7 @@ jobs:
     runs-on: windows-2022
     name: CI-windows (build)
     strategy:
+      fail-fast: false
       matrix:
         build_type: [Release, Debug]
 
