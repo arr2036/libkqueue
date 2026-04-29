@@ -647,9 +647,19 @@ test_evfilt_read(struct test_context *ctx)
     test(kevent_socket_dispatch, ctx);
 #endif
 #endif /* !_WIN32 */
+#ifndef _WIN32
+    /*
+     * These call close() directly on a SOCKET handle.  Win32's
+     * _close() asserts in Debug builds when handed something
+     * that isn't a CRT file descriptor, hanging the test on a
+     * Debug Assertion dialog (and FailFast-aborting in Release).
+     * They'd need closesocket()/shutdown() to be Windows-safe;
+     * skip until that conversion happens.
+     */
     test(kevent_socket_listen_backlog, ctx);
     test(kevent_socket_eof_clear, ctx);
     test(kevent_socket_eof, ctx);
+#endif
 #ifndef _WIN32
     /* Win32 pipe() (_pipe) handles aren't sockets and the read filter's
      * WSAEventSelect path doesn't apply; skip the pipe-EOF tests there. */
