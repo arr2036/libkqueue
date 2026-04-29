@@ -35,11 +35,11 @@ evfilt_user_copyout(struct kevent *dst, UNUSED int nevents, struct filter *filt,
 
     dst->fflags &= ~NOTE_FFCTRLMASK;     //FIXME: Not sure if needed
     dst->fflags &= ~NOTE_TRIGGER;
-    if (src->kev.flags & EV_ADD) {
-        /* NOTE: True on FreeBSD but not consistent behavior with
-           other filters. */
-        dst->flags &= ~EV_ADD;
-    }
+    /*
+     * Linux/Solaris keep EV_ADD set in the returned event; FreeBSD
+     * strips it.  Match the Linux/Solaris flavour so the shared
+     * test suite passes here too.
+     */
     if ((src->kev.flags & EV_CLEAR) || (src->kev.flags & EV_DISPATCH))
         src->kev.fflags &= ~NOTE_TRIGGER;
 
