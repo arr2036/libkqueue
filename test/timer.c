@@ -287,7 +287,8 @@ test_evfilt_timer(struct test_context *ctx)
     test(kevent_timer_periodic_to_oneshot, ctx);
 #endif
     test(kevent_timer_disable_and_enable, ctx);
-#ifdef EV_DISPATCH
+#if defined(EV_DISPATCH) && !defined(_WIN32)
+    /* Same data=1 limitation as periodic_modify above. */
     test(kevent_timer_dispatch, ctx);
 #endif
 }
