@@ -113,21 +113,29 @@ evfilt_read_copyout(struct kevent *dst, UNUSED int nevents, struct filter *filt,
 
     if (src->kn_flags & KNFL_FILE) {
         /*
-         * Regular file: report bytes-remaining-to-EOF as Linux/BSD
-         * do, derived from fstat()+lseek().  Failure is benign;
-         * we just report 0 in that case rather than dropping the
-         * event entirely.
+         * Regular file: report bytes-remaining-to-EOF, matching
+         * the Linux read filter.  At EOF discard the event by
+         * zeroing dst->filter (the common layer drops events with
+         * filter==0) and stop the synthetic re-arm cycle, so a
+         * subsequent test_no_kevents on a fully-consumed file
+         * sees nothing pending.  A consumer that seeks back and
+         * re-enables the knote will pick the new range up via
+         * the next knote_create.
          */
         struct _stat64 sb;
         __int64 curpos;
+        intptr_t remaining = 0;
         if (_fstat64((int)src->kev.ident, &sb) == 0) {
             curpos = _lseeki64((int)src->kev.ident, 0, SEEK_CUR);
             if (curpos < 0) curpos = 0;
-            dst->data = (sb.st_size > curpos) ? (intptr_t)(sb.st_size - curpos) : 0;
-            if (sb.st_size <= curpos) dst->flags |= EV_EOF;
-        } else {
-            dst->data = 0;
+            remaining = (sb.st_size > curpos) ? (intptr_t)(sb.st_size - curpos) : 0;
         }
+        if (remaining == 0) {
+            dst->filter = 0;
+            src->kn_file_synthetic = 0;
+            return (0);
+        }
+        dst->data = remaining;
     } else if (src->kn_flags & KNFL_SOCKET_PASSIVE) {
         /* TODO: should contains the length of the socket backlog */
         dst->data = 1;
