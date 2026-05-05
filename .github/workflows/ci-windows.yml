@@ -99,7 +99,7 @@ jobs:
           $gated = $null
           if (Test-Path $bin) {
             $gated = & $bin --list-gated=windows 2>$null
-            $null = $LASTEXITCODE
+            $LASTEXITCODE = 0
           }
           $lines = [System.Collections.Generic.List[string]]@(
             "## Gated on windows",

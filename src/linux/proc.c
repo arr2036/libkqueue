@@ -59,6 +59,21 @@ evfilt_proc_copyout(struct kevent *dst, UNUSED int nevents, struct filter *filt,
     }
 
     /*
+     * musl's waitid(WNOHANG) can return success with a zero-filled siginfo even
+     * when the child has already exited (the pidfd being readable guarantees
+     * it has).  Retry without WNOHANG: the process is definitively dead so
+     * this will not block.
+     */
+    if (info.si_pid == 0) {
+        dbg_printf("waitid(WNOHANG) returned si_pid=0 for dead pid %u, retrying",
+                   (unsigned int)src->kev.ident);
+        if (waitid(P_PID, (id_t)src->kev.ident, &info, WEXITED | WNOWAIT) < 0) {
+            dbg_printf("waitid(2) retry: %s", strerror(errno));
+            return (-1);
+        }
+    }
+
+    /*
      *  Try and reconstruct the status code that would have been
      *  returned by waitpid.  The OpenBSD man pages
      *  and observations of the macOS kqueue confirm this is what

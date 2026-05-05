@@ -15,6 +15,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include <poll.h>
 #include <signal.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
@@ -320,15 +321,16 @@ evfilt_socket_copyout(struct kevent *dst, UNUSED int nevents, struct filter *fil
         }
 
         /*
-         * POLLIN + data=0: peer closed (EOF) or another thread drained the
-         * queue (race).  recv with MSG_PEEK + MSG_DONTWAIT confirms: returns
-         * 0 only on real EOF.  Set EV_EOF only when confirmed; otherwise the
-         * copyout's data==0 skip drops the event silently.
+         * Detect peer half-close on connected stream sockets.
          *
-         * POLLIN + POLLHUP + data>0: peer closed after writing data.  illumos
-         * does not fire a separate POLLHUP event in this case, so we can't
-         * rely on the POLLHUP block below.  Set EV_EOF directly; the consumer
-         * drains the data first, then sees the EOF flag.
+         * data=0: unambiguously check for FIN via MSG_PEEK; recv returns 0
+         * only when the peer has closed.
+         *
+         * data>0: illumos does not set POLLHUP in portev_events when FIN
+         * arrives while bytes are still buffered (POLLHUP only fires after
+         * the buffer is drained).  Use a non-blocking poll(POLLRDHUP) probe
+         * instead: POLLRDHUP is set as soon as FIN is received, regardless
+         * of buffered data.
          */
         if ((src->kn_flags & KNFL_SOCKET_STREAM) &&
             !(src->kn_flags & KNFL_SOCKET_PASSIVE)) {
@@ -338,8 +340,14 @@ evfilt_socket_copyout(struct kevent *dst, UNUSED int nevents, struct filter *fil
                                  MSG_PEEK | MSG_DONTWAIT);
                 if (n == 0)
                     dst->flags |= EV_EOF;
-            } else if (pe->portev_events & POLLHUP) {
-                dst->flags |= EV_EOF;
+            } else {
+                struct pollfd pfd = {
+                    .fd     = (int) pe->portev_object,
+                    .events = POLLRDHUP,
+                };
+                if (poll(&pfd, 1, 0) > 0 &&
+                    (pfd.revents & (POLLRDHUP | POLLHUP)))
+                    dst->flags |= EV_EOF;
             }
         }
     }

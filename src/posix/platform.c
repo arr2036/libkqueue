@@ -293,9 +293,13 @@ posix_kevent_wait(struct kqueue *kq, UNUSED int numevents, const struct timespec
         /*
          * Clamp the pselect timeout against the next EVFILT_TIMER
          * deadline so timer fires drive wakeups without a sleeper
-         * thread.  -1 means "no timer constrains us".
+         * thread.  -1 means "no timer constrains us".  Take the
+         * lock: posix_timer_min_deadline_ns peeks at kq_timers which
+         * a concurrent copyout thread modifies under the mutex.
          */
+        kqueue_lock(kq);
         timer_ns = posix_timer_min_deadline_ns(kq);
+        kqueue_unlock(kq);
         if (timer_ns >= 0) {
             timer_to.tv_sec  = timer_ns / 1000000000L;
             timer_to.tv_nsec = timer_ns % 1000000000L;
@@ -342,11 +346,13 @@ posix_kevent_wait(struct kqueue *kq, UNUSED int numevents, const struct timespec
 
         /*
          * A timer expiry presents to pselect as a plain timeout
-         * (n == 0).  Run the timer sweep so copyout sees fresh
-         * fire counts; if anything fired, force a copyout pass.
+         * (n == 0).  Signal the caller to run copyout, which calls
+         * posix_timer_check under the kqueue lock.  Do NOT call
+         * posix_timer_check here: this path runs without the lock
+         * (KEVENT_WAIT_DROP_LOCK) and a concurrent copyout thread
+         * may be modifying kq_timers, causing a UAF on the RB tree.
          */
         if (n == 0) {
-            posix_timer_check(kq);
             if (kq->kq_always_ready > 0)
                 return (1);
             if (timer_ns >= 0 && (use_to == &timer_to))
