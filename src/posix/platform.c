@@ -334,8 +334,17 @@ posix_kevent_wait(struct kqueue *kq, UNUSED int numevents, const struct timespec
         n = pselect(kq->kq_nfds, &rfds, &wfds, NULL, use_to, NULL);
         if (n < 0) {
             if (errno == EINTR) {
-                dbg_puts("pselect: EINTR");
-                return (0);
+                /*
+                 * Interrupted by a signal.  SIGCHLD is blocked in this
+                 * thread (evfilt_proc_init did pthread_sigmask SIG_BLOCK);
+                 * the wait thread handles it via sigwaitinfo and then
+                 * raises the proc eventfd.  Other signals (e.g. SIGPROF
+                 * from ASAN profiling) must not terminate a NULL-timeout
+                 * kevent call with 0 events.  Retry; the next pselect
+                 * iteration will see the eventfd if the wait thread fired.
+                 */
+                dbg_puts("pselect: EINTR, retrying");
+                continue;
             }
             dbg_perror("pselect(2)");
             return (-1);
