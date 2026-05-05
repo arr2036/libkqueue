@@ -124,6 +124,11 @@ evfilt_socket_knote_create(struct filter *filt, struct knote *kn)
     switch (kn->kev.filter) {
         case EVFILT_READ:
             events = POLLIN;
+#ifdef POLLRDHUP
+            /* Subscribe to half-close so portev_events includes POLLRDHUP
+             * when FIN arrives while data is still buffered. */
+            events |= POLLRDHUP;
+#endif
             break;
         case EVFILT_WRITE:
             events = POLLOUT;
@@ -328,9 +333,9 @@ evfilt_socket_copyout(struct kevent *dst, UNUSED int nevents, struct filter *fil
          *
          * data>0: illumos does not set POLLHUP in portev_events when FIN
          * arrives while bytes are still buffered (POLLHUP only fires after
-         * the buffer is drained).  Use a non-blocking poll(POLLRDHUP) probe
-         * instead: POLLRDHUP is set as soon as FIN is received, regardless
-         * of buffered data.
+         * the buffer is drained).  We subscribe to POLLRDHUP in
+         * port_associate (see knote_create) so portev_events carries it
+         * as soon as FIN is received, regardless of buffered data.
          */
         if ((src->kn_flags & KNFL_SOCKET_STREAM) &&
             !(src->kn_flags & KNFL_SOCKET_PASSIVE)) {
@@ -340,15 +345,11 @@ evfilt_socket_copyout(struct kevent *dst, UNUSED int nevents, struct filter *fil
                                  MSG_PEEK | MSG_DONTWAIT);
                 if (n == 0)
                     dst->flags |= EV_EOF;
-            } else {
-                struct pollfd pfd = {
-                    .fd     = (int) pe->portev_object,
-                    .events = POLLRDHUP,
-                };
-                if (poll(&pfd, 1, 0) > 0 &&
-                    (pfd.revents & (POLLRDHUP | POLLHUP)))
-                    dst->flags |= EV_EOF;
             }
+#ifdef POLLRDHUP
+            else if (pe->portev_events & POLLRDHUP)
+                dst->flags |= EV_EOF;
+#endif
         }
     }
 

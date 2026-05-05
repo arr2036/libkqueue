@@ -135,8 +135,14 @@ waiter_notify(struct proc_pid *ppd, int status)
         filt = knote_get_filter(kn);
         dbg_printf("pid=%u exited, notifying kq=%u filter=%p kn=%p",
                    (unsigned int)ppd->ppd_pid, kn->kn_kq->kq_id, filt, kn);
+        /*
+         * Insert before raising: pselect wakes on the eventfd write
+         * (a full memory barrier), so by the time copyout reads
+         * kf_ready the insert is already visible.  Raising first
+         * creates a window where copyout sees an empty kf_ready.
+         */
+        LIST_INSERT_HEAD(&filt->kf_ready, kn, kn_ready);
         kqops.eventfd_raise(&filt->kf_efd);
-        LIST_INSERT_HEAD(&filt->kf_ready, kn, kn_ready); /* protected by proc_pid_index_mtx */
 
         LIST_REMOVE_ZERO(kn, kn_proc.waiter);
     }
@@ -159,8 +165,8 @@ waiter_notify_error(struct proc_pid *ppd, int wait_errno)
         filt = knote_get_filter(kn);
         dbg_printf("pid=%u errored (%s), notifying kq=%u filter=%p kn=%p",
                    (unsigned int)ppd->ppd_pid, strerror(errno), kn->kn_kq->kq_id, filt, kn);
+        LIST_INSERT_HEAD(&filt->kf_ready, kn, kn_ready);
         kqops.eventfd_raise(&filt->kf_efd);
-        LIST_INSERT_HEAD(&filt->kf_ready, kn, kn_ready); /* protected by proc_pid_index_mtx */
 
         LIST_REMOVE_ZERO(kn, kn_proc.waiter);
     }
