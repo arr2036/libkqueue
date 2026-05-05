@@ -629,8 +629,7 @@ test_kevent_pipe_eof(struct test_context *ctx)
     kevent_add(ctx->kqfd, &kev, pipefd[0], EVFILT_READ, EV_DELETE, 0, 0, NULL);
 
     close(pipefd[0]);
-    if (pipefd[1] != -1)
-        close(pipefd[1]);
+    /* pipefd[1] was closed and set to -1 above; nothing to do. */
 }
 
 void
@@ -679,9 +678,8 @@ test_kevent_pipe_eof_multi(struct test_context *ctx)
     kevent_add(ctx->kqfd, &kev, pipefd_b[0], EVFILT_READ, EV_DELETE, 0, 0, NULL);
 
     close(pipefd_a[0]);
-    if (pipefd_a[1] != -1) close(pipefd_a[1]);
     close(pipefd_b[0]);
-    if (pipefd_b[1] != -1) close(pipefd_b[1]);
+    /* pipefd_a[1] and pipefd_b[1] were closed and set to -1 above. */
 }
 
 /* Test if EVFILT_READ works with regular files */
