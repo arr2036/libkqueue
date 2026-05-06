@@ -351,12 +351,28 @@ monitoring_thread_loop(UNUSED void *arg)
          */
         pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, NULL);
         tracing_mutex_lock(&kq_mtx);
-        dbg_printf("fd=%i - freeing kqueue due to fd closure (signal) for sfd=%i ", fd_map_get(info.si_fd), info.si_fd);
 
         /*
-         * Release resources used by this kqueue
+         * Process the waking signal and then drain any additional
+         * signals that arrived while we were locked or between
+         * iterations.  Batching is important under instrumentation
+         * (ASAN/TSAN): stress tests can queue thousands of close
+         * signals, and processing one per sigwaitinfo call leaves
+         * libkqueue_drain_pending_close waiting far longer than its
+         * timeout.  sigtimedwait with a zero timeout gives us the
+         * next queued signal without blocking.
          */
-        monitoring_thread_kqueue_cleanup(info.si_fd);
+        {
+            siginfo_t cur = info;
+            struct timespec zero = { 0, 0 };
+
+            do {
+                dbg_printf("fd=%i - freeing kqueue due to fd closure (signal) for sfd=%i ",
+                           fd_map_get(cur.si_fd), cur.si_fd);
+                monitoring_thread_kqueue_cleanup(cur.si_fd);
+                if (kq_cnt == 0) break;
+            } while (sigtimedwait(&monitoring_sig_set, &cur, &zero) > 0);
+        }
 
         /*
          * Exit if there are no more kqueues to monitor
