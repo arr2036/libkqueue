@@ -544,15 +544,23 @@ linux_libkqueue_free(void)
 void VISIBLE
 libkqueue_drain_pending_close(void)
 {
-    /* Bounded so a stuck monitoring thread doesn't hang the test
-     * suite indefinitely.  In practice the cleanup runs in
-     * microseconds; this cap is millions of yields, plenty. */
-    enum { MAX_SPIN = 1000000 };
-    int            spin;
-    struct kqueue *kq;
-    bool           any_closed;
+    /*
+     * Bounded wait for the monitoring thread to process all pending
+     * kqueue closes.  Under instrumentation (ASAN/TSAN) the monitoring
+     * thread can fall far behind when a stress test hammers kqueue
+     * create/close at high rate, so we use a real-time 30-second
+     * deadline with 1ms sleeps rather than a fixed iteration count.
+     * In normal operation the drain completes in < 1ms.
+     */
+    enum { TIMEOUT_SEC = 30 };
+    struct timespec deadline, now, nap = { 0, 1000000L }; /* 1ms */
+    struct kqueue  *kq;
+    bool            any_closed;
 
-    for (spin = 0; spin < MAX_SPIN; spin++) {
+    clock_gettime(CLOCK_MONOTONIC, &deadline);
+    deadline.tv_sec += TIMEOUT_SEC;
+
+    do {
         any_closed = false;
         tracing_mutex_lock(&kq_mtx);
         LIST_FOREACH(kq, &kq_list, kq_entry) {
@@ -563,8 +571,11 @@ libkqueue_drain_pending_close(void)
         }
         tracing_mutex_unlock(&kq_mtx);
         if (!any_closed) return;
-        sched_yield();
-    }
+        nanosleep(&nap, NULL);
+        clock_gettime(CLOCK_MONOTONIC, &now);
+    } while (now.tv_sec < deadline.tv_sec ||
+             (now.tv_sec == deadline.tv_sec && now.tv_nsec < deadline.tv_nsec));
+
     dbg_puts("libkqueue_drain_pending_close: timeout waiting for monitoring thread");
 }
 
