@@ -708,8 +708,13 @@ usage(void)
            " --log-file=TEMPLATE        Route each test's stderr (libkqueue\n"
            "                            KQUEUE_DEBUG output + crash backtrace)\n"
            "                            to a file.  Specifiers: %%{t} test name,\n"
-           "                            %%{i} iteration, %%{p} pid, %%%% literal.\n"
-           "                            e.g. --log-file='kqlog-%%{t}.log'\n"
+           "                            %%{i} iteration, %%{p} pid, %%{s} stream\n"
+           "                            (out/err; including it also captures the\n"
+           "                            test body's stdout), %%%% literal.\n"
+           "                            e.g. --log-file='kqlog-%%{t}-%%{s}.log'\n"
+           " --log-buffered             Fully buffer stdout/stderr (fast for\n"
+           "                            verbose KQUEUE_DEBUG soaks; flushed at\n"
+           "                            each per-test boundary and before abort).\n"
            " --list-gated[=PLATFORM]    Print tab-separated list of gated tests\n"
            "                            for PLATFORM (or current build if omitted).\n"
            "                            Output: suite TAB test TAB reason\n"
@@ -908,7 +913,8 @@ main(int argc, char **argv)
      * positional argument; the shared block below filters the
      * test table down to whatever the user asked for.
      */
-    int optind_local = 1;
+    int  optind_local = 1;
+    bool log_buffered = false;
 #ifndef _WIN32
     {
         enum {
@@ -918,6 +924,7 @@ main(int argc, char **argv)
             OPT_LIST_GATED,
             OPT_LOG_FILE,
             OPT_SHOW_SKIPS,
+            OPT_LOG_BUFFERED,
         };
         static const struct option long_opts[] = {
             { "watchdog-timeout", required_argument, NULL, OPT_WATCHDOG_TIMEOUT },
@@ -926,6 +933,7 @@ main(int argc, char **argv)
             { "list-gated",       optional_argument, NULL, OPT_LIST_GATED       },
             { "log-file",         required_argument, NULL, OPT_LOG_FILE         },
             { "show-skips",       no_argument,       NULL, OPT_SHOW_SKIPS       },
+            { "log-buffered",     no_argument,       NULL, OPT_LOG_BUFFERED     },
             { NULL,               0,                 NULL, 0                    },
         };
         while ((c = getopt_long(argc, argv, "hn:", long_opts, NULL)) != -1) {
@@ -954,6 +962,9 @@ main(int argc, char **argv)
                     break;
                 case OPT_SHOW_SKIPS:
                     lkq_show_skips = true;
+                    break;
+                case OPT_LOG_BUFFERED:
+                    log_buffered = true;
                     break;
                 case OPT_LIST_GATED: {
                     lkq_platform_t target = lkq_current_platform;
@@ -1000,6 +1011,8 @@ main(int argc, char **argv)
             test_log_set_template(a + 11);
         } else if (strcmp(a, "--show-skips") == 0) {
             lkq_show_skips = true;
+        } else if (strcmp(a, "--log-buffered") == 0) {
+            log_buffered = true;
         } else if (strncmp(a, "--list-gated", 12) == 0) {
             lkq_platform_t target = lkq_current_platform;
             const char *eq = strchr(a, '=');
@@ -1029,6 +1042,19 @@ main(int argc, char **argv)
         optind_local++;
     }
 #endif
+
+    /*
+     * --log-buffered: fully buffer stdout/stderr so a verbose KQUEUE_DEBUG
+     * soak doesn't pay one WriteFile syscall per line (catastrophic on
+     * Win32: ~30 min vs seconds).  Set before any test output.  The
+     * per-test redirect flushes at each boundary, and die()/cmp-failure
+     * flush before abort(), so a failing test's trail still reaches its
+     * file.  Off by default: unbuffered keeps the full trail on a crash.
+     */
+    if (log_buffered) {
+        setvbuf(stdout, NULL, _IOFBF, 1 << 16);
+        setvbuf(stderr, NULL, _IOFBF, 1 << 16);
+    }
 
     /* If specific tests are requested, disable all tests by default */
     if (optind_local < argc) {

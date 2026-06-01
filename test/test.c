@@ -43,6 +43,7 @@ static int error_flag = 1;
  * still reaches the console.
  *
  * Template specifiers: %{t} test name, %{i} iteration, %{p} pid,
+ * %{s} stream ("out"/"err", and presence enables stdout capture),
  * %% literal percent.
  */
 #ifdef _WIN32
@@ -61,6 +62,22 @@ static int error_flag = 1;
 
 static char *test_log_template    = NULL;
 static int   test_log_orig_stderr = -1;
+static int   test_log_orig_stdout = -1;
+
+/*
+ * A %{s} (stream) marker in the template means "capture stdout and stderr to
+ * separate per-test files" (%{s} expands to "out"/"err").  Without it, only
+ * stderr is routed, matching the original behaviour.
+ */
+static bool
+test_log_has_stream(const char *tmpl)
+{
+    const char *p;
+
+    for (p = tmpl; (p = strstr(p, "%{s}")) != NULL; p += 4)
+        return true;
+    return false;
+}
 
 void
 test_log_set_template(const char *tmpl)
@@ -71,7 +88,7 @@ test_log_set_template(const char *tmpl)
 
 static void
 test_log_expand(char *out, size_t outlen, const char *tmpl,
-                const char *test, int iter)
+                const char *test, int iter, const char *stream)
 {
     const char *p = tmpl;
     size_t      o = 0;
@@ -98,6 +115,9 @@ test_log_expand(char *out, size_t outlen, const char *tmpl,
                 snprintf(num, sizeof(num), "%ld", kq_getpid);
                 ins = num;
                 break;
+            case 's':
+                ins = stream;
+                break;
             default:
                 break;
             }
@@ -113,48 +133,69 @@ test_log_expand(char *out, size_t outlen, const char *tmpl,
     out[o] = '\0';
 }
 
+/*
+ * Repoint a stdio stream's fd at a per-test file with dup2() rather than
+ * freopen().  freopen frees and reallocates the FILE object's buffer, which
+ * races libkqueue's monitoring thread writing to the stream (a use-after-free
+ * flagged by ASAN/TSAN).  dup2 only swaps the kernel fd; the FILE object is
+ * untouched and stdio's per-stream lock keeps concurrent writers safe.
+ */
 static void
-test_log_begin(const char *test, int iter)
+test_log_redirect(FILE *stream, const char *test, int iter, const char *tag,
+                  int *saved_fd)
 {
     char path[1024];
     int  fd;
 
-    if (!test_log_template)
-        return;
+    if (*saved_fd < 0)
+        *saved_fd = kq_dup(fileno(stream));
 
-    test_log_expand(path, sizeof(path), test_log_template, test, iter);
-
-    if (test_log_orig_stderr < 0)
-        test_log_orig_stderr = kq_dup(fileno(stderr));
-
+    test_log_expand(path, sizeof(path), test_log_template, test, iter, tag);
     fd = kq_open(path);
     if (fd < 0)
         return;
 
-    /*
-     * Repoint fd 2 at the per-test file with dup2() rather than
-     * freopen(stderr).  freopen frees and reallocates the stderr FILE
-     * object's buffer, which races libkqueue's monitoring thread
-     * writing debug to stderr (a use-after-free flagged by ASAN/TSAN).
-     * dup2 only swaps the kernel fd; the FILE object is untouched and
-     * stdio's per-stream lock keeps concurrent writers safe.  stderr is
-     * unbuffered by default, so a crash mid-test still leaves the trail
-     * on disk without a setvbuf() that would itself touch the buffer.
-     */
-    fflush(stderr);
-    kq_dup2(fd, fileno(stderr));
+    fflush(stream);
+    kq_dup2(fd, fileno(stream));
     kq_close(fd);
+}
+
+static void
+test_log_restore(FILE *stream, int *saved_fd)
+{
+    if (*saved_fd < 0)
+        return;
+
+    fflush(stream);
+    kq_dup2(*saved_fd, fileno(stream));
+    clearerr(stream);
+}
+
+static void
+test_log_begin(const char *test, int iter)
+{
+    if (!test_log_template)
+        return;
+
+    test_log_redirect(stderr, test, iter, "err", &test_log_orig_stderr);
+
+    /*
+     * A %{s} marker opts into capturing stdout too (its own per-test file);
+     * the per-test progress line was already printed to the console before
+     * this redirect, so only the test body's own output is captured.
+     */
+    if (test_log_has_stream(test_log_template))
+        test_log_redirect(stdout, test, iter, "out", &test_log_orig_stdout);
 }
 
 static void
 test_log_end(void)
 {
-    if (!test_log_template || (test_log_orig_stderr < 0))
+    if (!test_log_template)
         return;
 
-    fflush(stderr);
-    kq_dup2(test_log_orig_stderr, fileno(stderr));
-    clearerr(stderr);
+    test_log_restore(stderr, &test_log_orig_stderr);
+    test_log_restore(stdout, &test_log_orig_stdout);
 }
 
 #ifndef _WIN32

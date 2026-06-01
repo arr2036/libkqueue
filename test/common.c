@@ -469,6 +469,7 @@ _kevent_cmp(struct kevent *expected, struct kevent *got, const char *file, int l
         printf("[%s:%d]: kevent_cmp() failed:\n", file, line);
         printf("expected %s\n", kevent_to_str(expected));
         printf("but got  %s\n", kevent_to_str(got));
+        fflush(NULL);
         abort();
     }
 }
@@ -480,6 +481,7 @@ _kevent_rv_cmp(int expected, int got, const char *file, int line)
         printf("[%s:%d]: kevent_rv_cmp() failed:\n", file, line);
         printf("expected %u\n", expected);
         printf("but got  %u\n", got);
+        fflush(NULL);
         abort();
     }
 }

@@ -88,6 +88,7 @@
 
 #define die(fmt, ...)   do { \
     fprintf(stderr, "%s(): "fmt": %s (%i)\n", __func__, ##__VA_ARGS__, strerror(errno), errno);\
+    fflush(NULL);\
     abort();\
 } while (0)
 
