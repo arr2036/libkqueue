@@ -173,17 +173,16 @@ jobs:
           KQUEUE_DEBUG_OUTPUT: stderr
         run: |
           set PATH=%CD%\build_x64\${{ matrix.build_type }};%PATH%
-          .\build_x64\test\${{ matrix.build_type }}\libkqueue-test.exe -n ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.iterations || (github.event_name == 'schedule' && 50 || 1) }} --watchdog-timeout=120 "--watchdog-cmd=\"${{ steps.cdb.outputs.path }}\" -pv -c \"~*kb;qd\" -p" > test_full.log 2>&1
-          set RC=%ERRORLEVEL%
-          type test_full.log
-          exit /b %RC%
+          if not exist "%RUNNER_TEMP%\kqlogs" mkdir "%RUNNER_TEMP%\kqlogs"
+          .\build_x64\test\${{ matrix.build_type }}\libkqueue-test.exe -n ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.iterations || (github.event_name == 'schedule' && 50 || 1) }} --watchdog-timeout=120 "--watchdog-cmd=\"${{ steps.cdb.outputs.path }}\" -pv -c \"~*kb;qd\" -p" --log-buffered --log-file="%RUNNER_TEMP%\kqlogs\kq-%%{t}-%%{s}.log"
+          exit /b %ERRORLEVEL%
 
-      - name: "Upload test log on failure"
+      - name: "Upload test logs on failure"
         if: ${{ failure() }}
         uses: actions/upload-artifact@v4
         with:
           name: test-log-${{ matrix.build_type }}-${{ matrix.sanitize || 'plain' }}
-          path: test_full.log
+          path: ${{ runner.temp }}/kqlogs
           retention-days: 3
 
       #
