@@ -64,7 +64,18 @@ jobs:
               printf '_none_\n'
             fi
           } >> "$GITHUB_STEP_SUMMARY"
+          mkdir -p ../kqlogs
           ./libkqueue-test \
             --watchdog-timeout=120 \
             --watchdog-cmd=../tools/test-stack-dump.sh \
+            --log-file=../kqlogs/kq-%{t}-%{s}.log \
             -n ${{ github.event_name == 'workflow_dispatch' && inputs.iterations || (github.event_name == 'schedule' && 50 || 1) }}
+
+    - name: "Upload test logs on failure"
+      if: ${{ failure() }}
+      uses: actions/upload-artifact@v4
+      with:
+        name: test-log
+        path: libkqueue/kqlogs
+        retention-days: 3
+        if-no-files-found: ignore

@@ -219,7 +219,7 @@ jobs:
         test/libkqueue-test \
           --watchdog-timeout=120 \
           --watchdog-cmd="${{ github.workspace }}/tools/test-stack-dump.sh" \
-          --log-file="$RUNNER_TEMP/kqlogs/kq-%{t}.log" \
+          --log-file="$RUNNER_TEMP/kqlogs/kq-%{t}-%{s}.log" \
           -n ${{ github.event_name == 'workflow_dispatch' && inputs.iterations || (github.event_name == 'schedule' && 50 || 1) }}
 
     - name: Collect soak logs on failure
