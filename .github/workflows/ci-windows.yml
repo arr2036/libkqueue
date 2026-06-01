@@ -166,7 +166,10 @@ jobs:
           if-no-files-found: ignore
 
       - name: Run tests
-        timeout-minutes: ${{ (github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && 60 || 8 }}
+        # Debug builds format ~12M KQUEUE_DEBUG lines over a 50-iteration soak;
+        # buffering removed the per-line WriteFile cost but the formatting floor
+        # still needs ~75 min, so the soak step gets 90.
+        timeout-minutes: ${{ (github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && 90 || 8 }}
         shell: cmd
         env:
           KQUEUE_DEBUG: 1
