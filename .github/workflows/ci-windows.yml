@@ -46,12 +46,13 @@ env:
 jobs:
   windows-build:
     #
-    # Job-level cap is generous so that when "Run tests" trips its
-    # own per-step timeout (and fails the job), the tmate-on-failure
-    # step below has room to come up and emit the SSH URL.  Without
-    # the headroom the runner is killed before tmate runs.
+    # Must exceed the "Run tests" step budget (90 on a soak) plus the
+    # build and isolation-probe steps before it, and leave room for the
+    # tmate-on-failure step to come up and emit the SSH URL.  A 50-iter
+    # Debug soak's verbose KQUEUE_DEBUG run is ~75 min on top of ~13 min
+    # of build/probe, so the job cap is 120.
     #
-    timeout-minutes: 90
+    timeout-minutes: 120
     runs-on: windows-2022
     name: CI-windows (build)
     strategy:
