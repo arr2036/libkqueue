@@ -163,6 +163,21 @@ evfilt_write_copyout(struct kevent *dst, UNUSED int nevents, struct filter *filt
     }
 
     /*
+     * Edge-triggered writer (EV_CLEAR/EV_DISPATCH): a synthetic file/pipe
+     * writer is modelled as always-writable, so re-posting re-fires the
+     * same constant writable level to another parked waiter (the
+     * cross-thread double-delivery the single-delivery test catches, and
+     * the write-side twin of the pipe-read edge case).  Deliver once and
+     * go quiescent.  Level-triggered writers fall through and keep
+     * re-posting so they re-fire while writable.
+     */
+    if (src->kev.flags & (EV_CLEAR | EV_DISPATCH)) {
+        dbg_puts("edge writer: delivered once, going quiescent (no re-post)");
+        knote_release(src);
+        return (1);
+    }
+
+    /*
      * Synthetic file / pipe writer: re-post for the next drain.
      * The post's ref hands off into the queued entry.
      */

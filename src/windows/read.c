@@ -383,6 +383,29 @@ evfilt_read_copyout(struct kevent *dst, UNUSED int nevents, struct filter *filt,
      * the writer closes.
      */
     if (is_pipe) {
+        /*
+         * Edge-triggered pipe (EV_CLEAR/EV_DISPATCH): once the readable
+         * edge has been delivered, do not re-arm while data is still
+         * buffered.  A re-armed 0-byte ReadFile completes immediately on
+         * buffered data (it does not wait for the next write - confirmed
+         * on CI), so re-arming here re-fires the same edge to another
+         * parked waiter (cross-thread double-delivery) and busy-loops.
+         * Go quiescent instead; re-arm only once the pipe is empty, where
+         * the read genuinely waits for the next write (a real edge) and
+         * still catches writer-close EOF.  Level-triggered pipes fall
+         * through and keep re-arming so they re-fire while readable.
+         */
+        if (src->kev.flags & (EV_CLEAR | EV_DISPATCH)) {
+            unsigned long avail = 0;
+            if (src->kn_handle != NULL &&
+                PeekNamedPipe(src->kn_handle, NULL, 0, NULL,
+                              (DWORD *) &avail, NULL) && avail > 0) {
+                dbg_printf("edge pipe: %lu bytes buffered, going quiescent "
+                           "(no re-arm until drained)", avail);
+                knote_release(src);
+                return (1);
+            }
+        }
         memset(&src->kn_read.pipe_ov, 0, sizeof(src->kn_read.pipe_ov));
         if (ReadFile(src->kn_handle, src->kn_read.pipe_buf, 0, NULL,
                      &src->kn_read.pipe_ov))
