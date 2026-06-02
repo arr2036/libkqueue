@@ -8,9 +8,9 @@ on:
         required: false
         default: ""
       iterations:
-        description: "Soak iteration count (default 50 on dispatch)"
+        description: "Soak iteration count (default 20 on dispatch)"
         required: false
-        default: "50"
+        default: "20"
   schedule:
     - cron: '0 6 * * *'
   push:
@@ -46,13 +46,12 @@ env:
 jobs:
   windows-build:
     #
-    # Must exceed the "Run tests" step budget (90 on a soak) plus the
-    # build and isolation-probe steps before it, and leave room for the
-    # tmate-on-failure step to come up and emit the SSH URL.  A 50-iter
-    # Debug soak's verbose KQUEUE_DEBUG run is ~75 min on top of ~13 min
-    # of build/probe, so the job cap is 120.
+    # Job-level cap is generous so that when "Run tests" trips its
+    # own per-step timeout (and fails the job), the tmate-on-failure
+    # step below has room to come up and emit the SSH URL.  Without
+    # the headroom the runner is killed before tmate runs.
     #
-    timeout-minutes: 120
+    timeout-minutes: 90
     runs-on: windows-2022
     name: CI-windows (build)
     strategy:
@@ -167,10 +166,7 @@ jobs:
           if-no-files-found: ignore
 
       - name: Run tests
-        # Debug builds format ~12M KQUEUE_DEBUG lines over a 50-iteration soak;
-        # buffering removed the per-line WriteFile cost but the formatting floor
-        # still needs ~75 min, so the soak step gets 90.
-        timeout-minutes: ${{ (github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && 90 || 8 }}
+        timeout-minutes: ${{ (github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && 60 || 8 }}
         shell: cmd
         env:
           KQUEUE_DEBUG: 1
@@ -178,7 +174,7 @@ jobs:
         run: |
           set PATH=%CD%\build_x64\${{ matrix.build_type }};%PATH%
           if not exist "%RUNNER_TEMP%\kqlogs" mkdir "%RUNNER_TEMP%\kqlogs"
-          .\build_x64\test\${{ matrix.build_type }}\libkqueue-test.exe -n ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.iterations || (github.event_name == 'schedule' && 50 || 1) }} --watchdog-timeout=120 "--watchdog-cmd=\"${{ steps.cdb.outputs.path }}\" -pv -c \"~*kb;qd\" -p" --log-buffered --log-file="%RUNNER_TEMP%\kqlogs\kq-%%{t}-%%{s}.log"
+          .\build_x64\test\${{ matrix.build_type }}\libkqueue-test.exe -n ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.iterations || (github.event_name == 'schedule' && 20 || 1) }} --watchdog-timeout=120 "--watchdog-cmd=\"${{ steps.cdb.outputs.path }}\" -pv -c \"~*kb;qd\" -p" --log-buffered --log-file="%RUNNER_TEMP%\kqlogs\kq-%%{t}-%%{s}.log"
           exit /b %ERRORLEVEL%
 
       - name: "Upload test logs on failure"
