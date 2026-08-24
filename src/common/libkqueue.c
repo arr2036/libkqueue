@@ -21,9 +21,6 @@ common_libkqueue_knote_create(struct filter *filt, struct knote *kn)
     switch (kn->kev.fflags) {
     case NOTE_VERSION_STR:
         kn->kev.udata = LIBKQUEUE_VERSION_STRING
-#  ifdef LIBKQUEUE_VERSION_RELEASE
-                "-" STRINGIFY(LIBKQUEUE_VERSION_RELEASE)
-#  endif
 #  ifdef LIBKQUEUE_VERSION_COMMIT
         " (git #"LIBKQUEUE_VERSION_COMMIT")"
 #  endif
@@ -38,8 +35,8 @@ common_libkqueue_knote_create(struct filter *filt, struct knote *kn)
          kn->kev.data = ((uint32_t)LIBKQUEUE_VERSION_MAJOR << 24) |
                         ((uint32_t)LIBKQUEUE_VERSION_MINOR << 16) |
                         ((uint32_t)LIBKQUEUE_VERSION_PATCH << 8)
-#ifdef LIBKQUEUE_VERSION_RELEASE
-                        | (uint32_t)LIBKQUEUE_VERSION_RELEASE
+#ifdef LIBKQUEUE_VERSION_COMMITS
+                        | ((uint32_t)LIBKQUEUE_VERSION_COMMITS & 0xff)
 #endif
                 ;
          kn->kev.flags |= EV_RECEIPT; /* Causes the knote to be copied to the eventlist */

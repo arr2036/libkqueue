@@ -42,10 +42,25 @@ if(LIBKQUEUE_VERSION_COMMIT STREQUAL "")
 	unset(LIBKQUEUE_VERSION_COMMIT)
 endif()
 
-# Packagers can set VERSION_OVERRIDE to choose the version by hand.
-# Otherwise the version comes from the most recent release tag, and the
-# release number from how many commits have landed since the tag, so
-# every build between releases gets its own increasing version.
+# Packagers may set VERSION_OVERRIDE to specify the version directly.
+# Otherwise the version consists of the most recent release tag followed
+# by the number of commits recorded since that tag, so each build between
+# releases receives a distinct and increasing version.
+#
+# Taking the version 2.7.0.41 as an example:
+#
+#   2    major, read from the tag v2.7.0
+#   7    minor, read from the same tag
+#   0    patch, read from the same tag
+#   41   commits recorded since the tag was applied
+#
+# CMake treats the fourth component as the tweak, so PROJECT_VERSION_TWEAK
+# holds the commit count.  A build of the tagged revision itself has no
+# commits to count and the version is 2.7.0.
+#
+# The package release remains 1 in both cases, as the commit count already
+# distinguishes two builds of the same tag, giving package names of the
+# form libkqueue-2.7.0.41-1.x86_64.rpm.
 if(VERSION_OVERRIDE)
   MESSAGE("Version ${VERSION_OVERRIDE} (${LIBKQUEUE_VERSION_COMMIT}) [override]")
   set(PROJECT_VERSION "${VERSION_OVERRIDE}")
@@ -65,20 +80,27 @@ else()
     string(REGEX REPLACE "^v" "" PROJECT_VERSION "${PROJECT_VERSION_TAG}")
   endif()
 
+  # A repository cloned with --depth 1 contains no tags, so git describe
+  # returns nothing and the build falls back to the version declared
+  # above.  Two unrelated revisions then claim the same version, so the
+  # build warns here rather than leaving a packager to discover the
+  # collision later.
+  if(LIBKQUEUE_VERSION_COMMIT AND PROJECT_VERSION_TAG STREQUAL "")
+    MESSAGE(WARNING "Using the fallback version ${PROJECT_VERSION}, because git describe found no release tag reachable from HEAD. Clone the repository without --depth so git describe can report the real version.")
+  endif()
+
   execute_process(COMMAND sh -c "git describe --tags --match 'v*' | grep '-' | cut -d- -f2"
-                  OUTPUT_VARIABLE PROJECT_VERSION_RELEASE
+                  OUTPUT_VARIABLE PROJECT_VERSION_COMMITS
                   OUTPUT_STRIP_TRAILING_WHITESPACE
                   WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
 
-  if(PROJECT_VERSION_RELEASE STREQUAL "")
-    MESSAGE("Version ${PROJECT_VERSION} (${LIBKQUEUE_VERSION_COMMIT})")
-    unset(PROJECT_VERSION_RELEASE)
-  else()
-    # Release 1 is the default, so we need to start at release 2
-    MATH(EXPR PROJECT_VERSION_RELEASE "${PROJECT_VERSION_RELEASE}+1")
-    MESSAGE("Version ${PROJECT_VERSION}-${PROJECT_VERSION_RELEASE} (${LIBKQUEUE_VERSION_COMMIT})")
-    set(LIBKQUEUE_VERSION_RELEASE ${PROJECT_VERSION_RELEASE})
+  if(NOT PROJECT_VERSION_COMMITS STREQUAL "")
+    set(PROJECT_VERSION "${PROJECT_VERSION}.${PROJECT_VERSION_COMMITS}")
+    set(LIBKQUEUE_VERSION_COMMITS ${PROJECT_VERSION_COMMITS})
   endif()
+
+  MESSAGE("Version ${PROJECT_VERSION} (${LIBKQUEUE_VERSION_COMMIT})")
+  set(CPACK_PACKAGE_VERSION "${PROJECT_VERSION}")
 endif()
 
 project(libkqueue VERSION ${PROJECT_VERSION}
@@ -604,7 +626,9 @@ install(FILES
         COMPONENT pkgconfig)
 
 set(CPACK_PACKAGE_NAME ${PROJECT_NAME})
-# CPACK_PACKAGE_VERSION is set automatically
+# CPACK_PACKAGE_VERSION is assigned where the version is determined,
+# because cpack composes the default value from MAJOR, MINOR and PATCH
+# alone and would therefore omit the commit count.
 set(CPACK_PACKAGE_VERSION_MAJOR ${PROJECT_VERSION_MAJOR})
 set(CPACK_PACKAGE_VERSION_MINOR ${PROJECT_VERSION_MINOR})
 set(CPACK_PACKAGE_VERSION_PATCH ${PROJECT_VERSION_PATCH})
@@ -653,10 +677,6 @@ set(CPACK_RPM_MAIN_DEBUGINFO_PACKAGE ON)
 set(CPACK_RPM_DEBUGINFO_SINGLE_PACKAGE ON)
 set(CPACK_RPM_MAIN_BUILD_SOURCE_DIRS_PREFIX /usr/src/debug/${PROJECT_NAME}-${PROJECT_VERSION})
 
-if (PROJECT_VERSION_RELEASE)
-set(CPACK_RPM_PACKAGE_RELEASE ${PROJECT_VERSION_RELEASE})
-endif()
-
 #
 #  DEB Specific configuration
 #
@@ -674,16 +694,11 @@ set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS ON)
 set(CPACK_DEBIAN_PACKAGE_GENERATE_SHLIBS ON)
 
 #
-#  We need to setup the package dependencies manually
-#  when we're using a release version to ensure the
-#  library package is in sync with the headers.
+#  The dependency between the development package and the library
+#  package is declared manually so the headers and the library remain in
+#  step.
 #
-if (PROJECT_VERSION_RELEASE)
-set(CPACK_DEBIAN_DEVEL_PACKAGE_DEPENDS "${CPACK_DEBIAN_MAIN_PACKAGE_NAME} (= ${PROJECT_VERSION}-${PROJECT_VERSION_RELEASE})")
-set(CPACK_DEBIAN_PACKAGE_RELEASE ${PROJECT_VERSION_RELEASE})
-else()
 set(CPACK_DEBIAN_DEVEL_PACKAGE_DEPENDS "${CPACK_DEBIAN_MAIN_PACKAGE_NAME} (= ${PROJECT_VERSION})")
-endif()
 
 set(CPACK_SOURCE_PACKAGE_FILE_NAME "${CPACK_PACKAGE_NAME}-${PROJECT_VERSION}")
 set(CPACK_SOURCE_IGNORE_FILES
